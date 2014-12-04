@@ -1,0 +1,4 @@
+*.dll
+lwjgl64.dll
+/target/
+/src/main/java/junk/

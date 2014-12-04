@@ -1,0 +1,1 @@
+Extracted some bitmaps from jMonkey examples
