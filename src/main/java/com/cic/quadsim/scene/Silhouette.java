@@ -14,7 +14,7 @@ import com.jme3.scene.shape.Quad;
  */
 public class Silhouette extends Node {
     
-    public Silhouette(String name, Material material, float x, float y, float rot) {
+    public Silhouette(String name, Material material, float x, float y, float z, float rot) {
         super(name);
 
         Mesh box = new Quad(10f, 22.5f);
@@ -43,6 +43,6 @@ public class Silhouette extends Node {
 
         attachChild(inNode);
         scale(17.3f / 22.5f);
-        setLocalTranslation(x, 0, y);
+        setLocalTranslation(x, y, z);
     }    
 }

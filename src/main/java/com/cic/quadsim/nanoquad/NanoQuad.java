@@ -26,6 +26,9 @@ public class NanoQuad extends Node {
     private Battery battery;
     private RigidBodyControl rbControl;
     private float throttle, rudder, elevator, alieron;
+    private SphereCollisionShape collisionShape;
+    private float collisionShapeSize = 0.55f;
+    private float scale = 0.32f / 2;
 
     public NanoQuad(String name,
             Material topMaterial, Material bottomMaterial,
@@ -36,7 +39,6 @@ public class NanoQuad extends Node {
         Node aircraftShapeNode = new Node("aircraftShape");
 
         // Scale to 32 mm between props, which are at coord 1 -> distance between props is 2
-        float scale = 0.32f / 2;
 
         aircraftShapeNode.attachChild(new NanoQuadBody("aircraft body", topMaterial, bottomMaterial).scale(scale));
 
@@ -90,10 +92,11 @@ public class NanoQuad extends Node {
         this.addControl(rbControl);
         
         CompoundCollisionShape cShape = new CompoundCollisionShape();
-        cShape.addChildShape(new SphereCollisionShape(0.55f * scale), new Vector3f(-1 * scale, 0.1f * scale, -1 * scale));
-        cShape.addChildShape(new SphereCollisionShape(0.55f * scale), new Vector3f( 1 * scale, 0.1f * scale, -1 * scale));
-        cShape.addChildShape(new SphereCollisionShape(0.55f * scale), new Vector3f(-1 * scale, 0.1f * scale,  1 * scale));
-        cShape.addChildShape(new SphereCollisionShape(0.55f * scale), new Vector3f( 1 * scale, 0.1f * scale,  1 * scale));
+        collisionShape = new SphereCollisionShape(collisionShapeSize * scale);
+        cShape.addChildShape(collisionShape, new Vector3f(-1 * scale, 0.1f * scale, -1 * scale));
+        cShape.addChildShape(collisionShape, new Vector3f( 1 * scale, 0.1f * scale, -1 * scale));
+        cShape.addChildShape(collisionShape, new Vector3f(-1 * scale, 0.1f * scale,  1 * scale));
+        cShape.addChildShape(collisionShape, new Vector3f( 1 * scale, 0.1f * scale,  1 * scale));
         rbControl.setCollisionShape((CollisionShape)cShape);
         
         rbControl.setRestitution(0.09f);
@@ -126,10 +129,15 @@ public class NanoQuad extends Node {
     }
     
     public void applyControls(float tpf, float throttleV, float rudderV, float elevatorV, float alieronV){
+        // For some reason the simulation is drifting, these trims are to compensate that
+        final float rudderTrim = 0.004f;
+        final float elevatorTrim = 0.004f;
+        final float alieronTrim = 0.004f;
+
         this.throttle = throttleV;
-        this.rudder = rudderV;
-        this.elevator = elevatorV;
-        this.alieron = alieronV;
+        this.rudder = rudderV + rudderTrim;
+        this.elevator = elevatorV + elevatorTrim;
+        this.alieron = alieronV + alieronTrim;
         
         // Throttle under 0.4 is useless, so start at that.
         float throttleStart = 0.4f;
@@ -152,6 +160,9 @@ public class NanoQuad extends Node {
         float pitch = eulerAngles[0];
         float roll = eulerAngles[2];
 
+        Vector3f linearVelocity = rbControl.getLinearVelocity();
+        float velocityMagnitude = linearVelocity.length();
+        
         Vector3f angVel = rbControl.getAngularVelocity(); // global angular velocity
         angVel = globalRotation.inverse().mult(angVel); // local
         
@@ -182,6 +193,20 @@ public class NanoQuad extends Node {
         rbControl.applyForce(localUpVector.mult((hoverForce - pitchForce) * throttle * forceFactor), engineBackPosition);
 
         rbControl.applyTorque(localUpVector.mult((yawForce) * throttle * torqueFactor));
+        
+        // Dynamic air resistance
+        float dynamicFriction = FastMath.pow(velocityMagnitude / 90, 2);
+        rbControl.applyForce(linearVelocity.negate().mult(dynamicFriction), Vector3f.ZERO);
+        
+        // Compensate for small size of rigid body when velocity is high
+        float csScale = velocityMagnitude / 5;
+        csScale = csScale < 1 
+                ? 1 
+                : ( csScale > 5 
+                    ? 5 
+                    : csScale);
+        
+        collisionShape.setScale(new Vector3f(csScale, csScale, csScale));
         
         animate(tpf, throttle);
     }

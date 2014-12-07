@@ -3,14 +3,15 @@ package com.cic.quadsim;
 import com.cic.quadsim.input.GamePad;
 import com.cic.quadsim.input.JinputDriverExtractor;
 import com.cic.quadsim.nanoquad.NanoQuad;
+import com.cic.quadsim.scene.Gates;
 import com.cic.quadsim.scene.Silhouette;
 import com.cic.quadsim.scene.Tree;
 import com.jme3.app.SimpleApplication;
 import com.jme3.bullet.BulletAppState;
 import com.jme3.bullet.collision.PhysicsCollisionEvent;
 import com.jme3.bullet.collision.PhysicsCollisionListener;
-import com.jme3.bullet.collision.shapes.BoxCollisionShape;
 import com.jme3.bullet.control.RigidBodyControl;
+import com.jme3.collision.CollisionResults;
 import com.jme3.input.ChaseCamera;
 import com.jme3.input.KeyInput;
 import com.jme3.input.controls.ActionListener;
@@ -19,6 +20,7 @@ import com.jme3.light.AmbientLight;
 import com.jme3.light.DirectionalLight;
 import com.jme3.math.ColorRGBA;
 import com.jme3.math.Quaternion;
+import com.jme3.math.Ray;
 import com.jme3.math.Vector3f;
 import com.jme3.post.FilterPostProcessor;
 import com.jme3.renderer.Camera;
@@ -27,6 +29,7 @@ import com.jme3.scene.CameraNode;
 import com.jme3.scene.Geometry;
 import com.jme3.scene.Mesh;
 import com.jme3.scene.Node;
+import com.jme3.scene.Spatial;
 import com.jme3.scene.control.CameraControl.ControlDirection;
 import com.jme3.scene.shape.Box;
 import com.jme3.shadow.DirectionalLightShadowFilter;
@@ -35,9 +38,12 @@ import com.jme3.system.AppSettings;
 import com.jme3.terrain.geomipmap.TerrainLodControl;
 import com.jme3.terrain.geomipmap.TerrainQuad;
 import com.jme3.terrain.heightmap.AbstractHeightMap;
-import com.jme3.terrain.heightmap.HillHeightMap;
+import com.jme3.terrain.heightmap.ImageBasedHeightMap;
+import com.jme3.texture.Texture;
+import com.jme3.ui.Picture;
 import com.jme3.util.SkyFactory;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.logging.Logger;
 
 public class QuadSimApplication extends SimpleApplication implements PhysicsCollisionListener {
@@ -71,6 +77,8 @@ public class QuadSimApplication extends SimpleApplication implements PhysicsColl
 
     private BulletAppState bulletAppState;
 
+    private Node groundNode;
+    
     private CameraNode camNode1;
     private CameraNode camNode2;
     private Node camNode2Node;
@@ -82,16 +90,17 @@ public class QuadSimApplication extends SimpleApplication implements PhysicsColl
     private float cameraAspectRatio = 1;
     private int cameraMode = 0;
 
+    private Gates gates;
+    private String nextGate = null;
+    private ArrayList<String> gateSequence;
+    private long lapStart = -1;
+
     private int treeCount = 0;
 
     private NotificationsPanel notifications;
-    private int batteryWarningMsg;
 
     private boolean showBatteryStats = false;
-    private int throttleMsg;
-    private int throttleMsg2;
-    private int batteryMsg;
-    private int batteryMsg2;
+    private Picture batteryIcon;
 
     public QuadSimApplication() {
         super();
@@ -111,6 +120,10 @@ public class QuadSimApplication extends SimpleApplication implements PhysicsColl
         cameraAspectRatio = (cam.getFrustumRight() - cam.getFrustumLeft()) / (cam.getFrustumTop() - cam.getFrustumBottom());
 
         setDisplayStatView(false);
+
+        notifications = new NotificationsPanel(assetManager);
+        notifications.getNode().setLocalTranslation(0, cam.getHeight(), 0);
+        guiNode.attachChild(notifications.getNode());
 
         /* Bind space to reset simulation */
         inputManager.addMapping("ResetPosition", new KeyTrigger(KeyInput.KEY_SPACE));
@@ -148,7 +161,43 @@ public class QuadSimApplication extends SimpleApplication implements PhysicsColl
         rootNode.attachChild(makeGround());
         //rootNode.attachChild(makeHud());
         rootNode.attachChild(makeObstacles());
-        rootNode.attachChild(Tree.makeTrees(materials));
+        
+        Node trees = Tree.makeTrees(groundNode, materials);
+        rootNode.attachChild(trees);
+        for (Spatial tree : trees.getChildren()) {
+            if (tree instanceof Tree) {
+                bulletAppState.getPhysicsSpace().add(((Tree)tree).getRBControl());
+            }
+        }
+
+        gates = new Gates(materials);
+        rootNode.attachChild(gates);
+
+        gateSequence = new ArrayList<String>();
+        gates.addGate("1", 50, 0, -50, 10, 20, 0);
+        gates.addGate("2", 1550 - 1280, 0, 1030 - 1280, 10, 5, -(float) Math.PI / 2); // 155 103
+        gates.addGate("3", 1400 - 1280, 10, 1720 - 1280, 10, 20, -(float) Math.PI);   // 140 172
+        gates.addGate("4", 1320 - 1280, 15, 1510 - 1280, 3, 3, 0);   // 140 172
+        gateSequence.add("1");
+        gateSequence.add("2");
+        gateSequence.add("3");
+        gateSequence.add("4");
+        
+        placeStick(0, -20, 10);
+        //placeStick(-10, -50, 10);
+        //placeStick(-10, -150, 10);
+        
+        placeStick(50 - 5, -50, 22);
+        placeStick(50 + 5, -50, 22);
+        
+        placeStick(1550 - 1280, 1030 - 1280 - 5, 10);
+        placeStick(1550 - 1280, 1030 - 1280 + 5, 10);
+        
+        placeStick(1400 - 1280 - 5, 1720 - 1280, 25);
+        placeStick(1400 - 1280 + 5, 1720 - 1280, 25);
+        
+        placeStick(1320 - 1280 - 1.5f, 1510 - 1280, 13);
+        placeStick(1320 - 1280 + 1.5f, 1510 - 1280, 13);
 
         /* Add lights */
         DirectionalLight sunLight = new DirectionalLight();
@@ -204,87 +253,101 @@ public class QuadSimApplication extends SimpleApplication implements PhysicsColl
         chaseCam.setEnabled(false);
         chaseCam.setDragToRotate(false);
 
-        notifications = new NotificationsPanel(assetManager);
-        notifications.setLocalTranslation(0, cam.getHeight(), 0);
-        guiNode.attachChild(notifications);
-
         if (gamePad == null) {
-            notifications.setMessage(notifications.registerMessage(), "Game pad not found!");
+            notifications.put("gamepad-missing", "Game pad not found!");
         }
 
-        throttleMsg = notifications.registerMessage();
-        throttleMsg2 = notifications.registerMessage();
-        batteryMsg = notifications.registerMessage();
-        batteryMsg2 = notifications.registerMessage();
-        batteryWarningMsg = notifications.registerMessage();
-
+        /*
+         throttleMsg = notifications.registerMessage();
+         throttleMsg2 = notifications.registerMessage();
+         batteryMsg = notifications.registerMessage();
+         batteryMsg2 = notifications.registerMessage();
+         batteryWarningMsg = notifications.registerMessage();
+         altMsg = notifications.registerMessage();
+         */
+        makeHud();
+        
         resetPosition(3);
     }
 
-    private Node makeHud() {
-        Node hudNode = new Node("Hud");
-
-        Box b = new Box(0.5f, 0.03f, 0.03f);
-        Geometry geom = new Geometry("RollBox", b);
-        geom.setMaterial(materials.whitePlastic);
-        geom.move(2, 2, 4);
-        hudNode.attachChild(geom);
-
-        b = new Box(0.5f, 0.03f, 0.03f);
-        geom = new Geometry("PitchBox", b);
-        geom.setMaterial(materials.whitePlastic);
-        geom.move(2, 1, 4);
-        hudNode.attachChild(geom);
-
-        b = new Box(0.1f, 0.1f, 0.1f);
-        geom = new Geometry("VectorBox1", b);
-        geom.setMaterial(materials.whitePlastic);
-        geom.move(2, 0, 4);
-        //geom.setShadowMode(RenderQueue.ShadowMode.CastAndReceive);
-        hudNode.attachChild(geom);
-
-        b = new Box(0.1f, 0.1f, 0.1f);
-        geom = new Geometry("VectorBox2", b);
-        geom.setMaterial(materials.whitePlastic);
-        geom.move(2, 0.1f, 4);
-        //geom.setShadowMode(RenderQueue.ShadowMode.CastAndReceive);
-        hudNode.attachChild(geom);
-
-        return hudNode;
+    private void makeHud() {
+        batteryIcon = new Picture("HUD Battery Icon");
+        batteryIcon.setImage(assetManager, "Textures/battery-warning.png", true);
+        
+        batteryIcon.setWidth(6 * 7);
+        batteryIcon.setHeight(10 * 7);
+        batteryIcon.setPosition(settings.getWidth() - (6 * 7) - 10, 10);
+        guiNode.attachChild(batteryIcon);    
     }
 
     private Node makeGround() {
-        Node floorNode = new Node("Floor");
+        groundNode = new Node("Floor");
 
         AbstractHeightMap heightmap = null;
         try {
-            heightmap = new HillHeightMap(129, 1000, 50, 100, (byte) 3);
+            //heightmap = new HillHeightMap(129, 1000, 50, 100, (byte) 3);
+
+            Texture heightMapImage = assetManager.loadTexture(
+                    //"Textures/Terrain/splat/fortress512.png");
+                    "Textures/Terrain/Trzaska/trzaska-heightmap256.png");
+            heightmap = new ImageBasedHeightMap(heightMapImage.getImage());
+            heightmap.load();
         } catch (Exception e) {
+            e.printStackTrace();
         }
 
-        TerrainQuad terrain = new TerrainQuad("terrain", 65, 129, heightmap.getHeightMap());
+        TerrainQuad terrain = new TerrainQuad("terrain", 65, 257, heightmap.getHeightMap());
         terrain.setMaterial(materials.grassTerrain);
-        terrain.setLocalScale(50f, 0.001f, 50f);
-        terrain.setLocalTranslation(0, 0.9f, 0);
+        terrain.setLocalScale(10f, .3f, 10f);
+        terrain.setLocalTranslation(0, -18.5f, 0);
         ArrayList<Camera> cameras = new ArrayList<Camera>();
         cameras.add(getCamera());
         TerrainLodControl control = new TerrainLodControl(terrain, cameras);
         terrain.addControl(control);
+        //control.setLodCalculator(new NonlinearDistanceLodCalculator(65, 0.7f));
 
         terrain.setShadowMode(RenderQueue.ShadowMode.Receive);
 
         //return terrain;
-        floorNode.attachChild(terrain);
+        groundNode.attachChild(terrain);
 
         RigidBodyControl groundRBControl = new RigidBodyControl(0.0f);
-        floorNode.addControl(groundRBControl);
-        groundRBControl.setCollisionShape(new BoxCollisionShape(new Vector3f(900.0f, 1.0f, 900.0f)));
+        groundNode.addControl(groundRBControl);
+        //groundRBControl.setCollisionShape(new BoxCollisionShape(new Vector3f(900.0f, 1.0f, 900.0f)));
         groundRBControl.setFriction(1.9f);
         bulletAppState.getPhysicsSpace().add(groundRBControl);
 
-        return floorNode;
+        return groundNode;
     }
 
+    private void placeStick(float x, float z, float height){
+        Mesh box = new Box(0.1f, height / 2, 0.1f);
+        Geometry geom = new Geometry("stick", box);
+        geom.setMaterial(materials.whitePlastic);
+        geom.move(0, height / 2, 0);
+        Node node = new Node("Stick");
+        node.attachChild(geom);
+        node.setShadowMode(RenderQueue.ShadowMode.Cast);
+        
+        float y = 0;
+        Ray ray = new Ray(new Vector3f(x, 1000, z), new Vector3f(0, -1, 0));
+        CollisionResults results = new CollisionResults();
+        groundNode.collideWith(ray, results);
+        
+        if (results.size() > 0) {
+            float distance = results.getClosestCollision().getDistance();
+            y = 1000 - distance;
+        }
+        
+        node.setLocalTranslation(x, y, z);
+        rootNode.attachChild(node);
+        
+        RigidBodyControl landingRBControl = new RigidBodyControl(0.0f);
+        node.addControl(landingRBControl);
+        //landingRBControl.setCollisionShape(new BoxCollisionShape(new Vector3f(2f, 0.25f, 2f)));
+        bulletAppState.getPhysicsSpace().add(landingRBControl);
+    }
+    
     private Node makeObstacles() {
         Mesh box = new Box(2f, 0.25f, 2f);
         Geometry boxGeom = new Geometry("Landing pad", box);
@@ -294,12 +357,12 @@ public class QuadSimApplication extends SimpleApplication implements PhysicsColl
         Node landingNode = new Node("Landing");
         landingNode.attachChild(boxGeom);
 
-        box = new Box(0.5f, 5f, 0.5f);
+        /*box = new Box(0.5f, 5f, 0.5f);
         boxGeom = new Geometry("1m-box", box);
         boxGeom.setMaterial(materials.concrete);
         boxGeom.setShadowMode(RenderQueue.ShadowMode.Receive);
-        boxGeom.setLocalTranslation(0, 5f, -10);
-        landingNode.attachChild(boxGeom);
+        boxGeom.setLocalTranslation(0, 5f-0.8f, -10);
+        landingNode.attachChild(boxGeom);*/
 
         /*box = new Box(0.5f, 5f, 0.5f);
          boxGeom = new Geometry("1m-box-2", box);
@@ -316,17 +379,57 @@ public class QuadSimApplication extends SimpleApplication implements PhysicsColl
          boxGeom.setLocalTranslation(10, 10, -10);
          //boxGeom.setQueueBucket(Bucket.Transparent);
          landingNode.attachChild(boxGeom);*/
+        landingNode.attachChild(new Silhouette("man", materials.silhouette, -10, -1f, -10, 0));
+        landingNode.attachChild(new Silhouette("man2", materials.silhouette, 10, -1f, -20, 0.1f));
+        landingNode.attachChild(new Silhouette("man3", materials.silhouette, 15, -4.5f, -100, 0.3f));
 
-        landingNode.attachChild(new Silhouette("man", materials.silhouette, -10, -10, 0));
-        landingNode.attachChild(new Silhouette("man2", materials.silhouette, 10, -20, 0));
-        landingNode.attachChild(new Silhouette("man3", materials.silhouette, 15, -100, 0));
-
-        box = new Box(2f, 25f, 2f);
+        /*box = new Box(2f, 25f, 2f);
         boxGeom = new Geometry("5m-box", box);
         boxGeom.setMaterial(materials.concrete);
         boxGeom.setShadowMode(RenderQueue.ShadowMode.Receive);
-        boxGeom.setLocalTranslation(0, 25f, -100);
-        landingNode.attachChild(boxGeom);
+        boxGeom.setLocalTranslation(0, 25f-3f, -100);
+        landingNode.attachChild(boxGeom);*/
+
+        /*
+         box = new Box(2f, 50f, 2f);
+         boxGeom = new Geometry("10m-box", box);
+         boxGeom.setMaterial(materials.concrete);
+         boxGeom.setShadowMode(RenderQueue.ShadowMode.Receive);
+         boxGeom.setLocalTranslation(10, 2f, -50);
+         boxGeom.rotate((float)Math.PI/2, 0, 0);
+         landingNode.attachChild(boxGeom);
+        
+         box = new Box(5f, 500f, 2f);
+         boxGeom = new Geometry("100m-box", box);
+         boxGeom.setMaterial(materials.redPlastic);
+         boxGeom.setShadowMode(RenderQueue.ShadowMode.Receive);
+         boxGeom.setLocalTranslation(20, 2f, -500);
+         boxGeom.rotate((float)Math.PI/2, 0, 0);
+         landingNode.attachChild(boxGeom);
+        
+         box = new Box(5f, 500f, 2f);
+         boxGeom = new Geometry("100m-box2", box);
+         boxGeom.setMaterial(materials.redPlastic);
+         boxGeom.setShadowMode(RenderQueue.ShadowMode.Receive);
+         boxGeom.setLocalTranslation(40, 2f, -1500);
+         boxGeom.rotate((float)Math.PI/2, 0, 0);
+         landingNode.attachChild(boxGeom);
+
+         box = new Box(5f, 500f, 2f);
+         boxGeom = new Geometry("100m-box3", box);
+         boxGeom.setMaterial(materials.redPlastic);
+         boxGeom.setShadowMode(RenderQueue.ShadowMode.Receive);
+         boxGeom.setLocalTranslation(20, 2f, -2500);
+         boxGeom.rotate((float)Math.PI/2, 0, 0);
+         landingNode.attachChild(boxGeom);
+         */
+        /*float sideLength = 50f * 129f;
+         box = new Quad(sideLength, sideLength);
+         boxGeom = new Geometry("bottomquad", box);
+         boxGeom.setMaterial(materials.whitePlastic);
+         boxGeom.setLocalTranslation(-sideLength/2, -2f, sideLength/2);
+         boxGeom.rotate(-(float)Math.PI/2, 0, 0);
+         landingNode.attachChild(boxGeom);*/
 
         /*box = new Quad(0.32f, 0.32f);
          boxGeom = new Geometry("32mm square", box);
@@ -341,7 +444,6 @@ public class QuadSimApplication extends SimpleApplication implements PhysicsColl
          boxGeom.rotate(-(float)Math.PI/2, 0, 0);
          boxGeom.setLocalTranslation(0.32f, 0.4f, -0.75f);
          landingNode.attachChild(boxGeom);*/
-
         landingNode.setLocalTranslation(0, 1.2f, 0);
 
         RigidBodyControl landingRBControl = new RigidBodyControl(0.0f);
@@ -373,27 +475,56 @@ public class QuadSimApplication extends SimpleApplication implements PhysicsColl
                 resetPosition(3);
                 return;
             }
+            
+            if (gamePad.isPressedA()) {
+                aircraft.getBattery().reset();
+                return;
+            }
 
             float throttle = -gamePad.getLeftY();
             float alieron = -gamePad.getRightX();
             float elevator = gamePad.getRightY();
             float rudder = -gamePad.getLeftX();
 
-            notifications.setMessage(throttleMsg, showBatteryStats ? "Input Throttle: " + throttle : null);
+            notifications.put("input-throttle", showBatteryStats ? "Input Throttle: " + throttle : null);
 
             aircraft.applyControls(tpf, throttle, rudder, elevator, alieron);
 
-            notifications.setMessage(throttleMsg2, showBatteryStats ? "Applied Throttle: " + aircraft.getThrottleValue() : null);
+            notifications.put("applied-throttle", showBatteryStats ? "Applied Throttle: " + aircraft.getThrottleValue() : null);
 
         } else {
             aircraft.applyControls(tpf, 0, 0, 0, 0);
             aircraft.getBattery().getPower(tpf, 0);
         }
 
-        notifications.setMessage(batteryMsg, showBatteryStats ? "Capacity: " + aircraft.getBattery().getEffectiveCapacity() : null);
-        notifications.setMessage(batteryMsg2, showBatteryStats ? "Load: " + aircraft.getBattery().getLoad() : null);
+        notifications.put("bat-cap", showBatteryStats ? "Capacity: " + aircraft.getBattery().getEffectiveCapacity() : null);
+        notifications.put("bat-load", showBatteryStats ? "Load: " + aircraft.getBattery().getLoad() : null);
 
-        notifications.setMessage(batteryWarningMsg, aircraft.getBattery().hasWarning() ? "BATTERY WARNING!" : null);
+        notifications.put("bat-warn", aircraft.getBattery().hasWarning() ? "BATTERY WARNING!" : null);
+        batteryIcon.setCullHint(aircraft.getBattery().hasWarning() ? Spatial.CullHint.Never : Spatial.CullHint.Always);
+        //notifications.put("altitude", "Altitude: " + aircraft.getWorldTranslation().y/10);
+        //notifications.put("velocity", "Velocity: " + aircraft.getRBControl().getLinearVelocity().length());
+
+        String gate = gates.test(aircraft.getRBControl(), tpf);
+        if (gate != null && gate.equals(nextGate)) {
+            int index = gateSequence.indexOf(gate);
+            if (index == 0) {
+                long newLapStart = System.currentTimeMillis();
+                if (lapStart > 0) {
+                    notifications.put("lap" + newLapStart, "Lap time: " + ((newLapStart - lapStart) / 1000) + " seconds");
+                }
+                lapStart = newLapStart;
+            }
+            int nextIndex = index + 1;
+            if (nextIndex >= gateSequence.size()) {
+                nextIndex = 0;
+            }
+            nextGate = gateSequence.get(nextIndex);
+            //System.out.println("next: "+nextGate);
+            notifications.put("gate", "Passed gate " + gate);
+            gates.setActive(nextGate);
+            //lastGate = gate;
+        }
 
         updateCamera(tpf);
         //updateHud(tpf, tpf);
@@ -497,7 +628,7 @@ public class QuadSimApplication extends SimpleApplication implements PhysicsColl
 
     private void updateCameraFov() {
         //cam.setFrustumPerspective(cameraFieldOfView, cameraAspectRatio, cam.getFrustumNear(), cam.getFrustumFar());
-        cam.setFrustumPerspective(cameraFieldOfView, cameraAspectRatio, 0.1f, 1500);
+        cam.setFrustumPerspective(cameraFieldOfView, cameraAspectRatio, 0.1f, 10000);
         cam.update();
     }
 
@@ -511,6 +642,11 @@ public class QuadSimApplication extends SimpleApplication implements PhysicsColl
         updateCameraFov();
         //releaseMillis = System.currentTimeMillis();
         aircraft.getBattery().reset();
+        notifications.clear();
+        //lastGate = null;
+        nextGate = gateSequence.get(0);
+        gates.setActive(nextGate);
+        lapStart = -1;
     }
 
     @Override
