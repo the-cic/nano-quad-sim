@@ -2,6 +2,7 @@ package junk;
 
 //package net.java.games.input.example;
 
+import com.cic.quadsim.input.GamePad;
 import net.java.games.input.Component;
 import net.java.games.input.Controller;
 import net.java.games.input.ControllerEnvironment;
@@ -12,7 +13,7 @@ import net.java.games.input.EventQueue;
  * This class shows how to use the event queue system in JInput. It will show
  * how to get the controllers, how to get the event queue for a controller, and
  * how to read and process events from the queue.
- * 
+ *
  * @author Endolf
  */
 public class ReadAllEvents {
@@ -44,7 +45,7 @@ public class ReadAllEvents {
 					 * Create a strug buffer and put in it, the controller name,
 					 * the time stamp of the event, the name of the component
 					 * that changed and the new value.
-					 * 
+					 *
 					 * Note that the timestamp is a relative thing, not
 					 * absolute, we can tell what order events happened in
 					 * across controllers this way. We can not use it to tell
@@ -89,7 +90,8 @@ public class ReadAllEvents {
 	}
 
 	public static void main(String[] args) {
-            System.setProperty("net.java.games.input.librarypath", System.getProperty("user.dir") + System.getProperty("file.separator") + "lib");
+        GamePad.collect();
+            //System.setProperty("net.java.games.input.librarypath", System.getProperty("user.dir") + System.getProperty("file.separator") + "lib");
 		new ReadAllEvents();
 	}
 }
